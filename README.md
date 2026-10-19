@@ -89,13 +89,13 @@ finalizer 的日志在 `~/.zcode/zcode-composer-predictions/finalize.log`。看�
 | `predict.timeoutMs` | 模型请求超时，默认 30 秒 |
 | `debug` | 写入更详细的日志 |
 
-指定便宜模型的例子（provider/model 必须存在于 ZCode 的 `provider_config.json`）：
+指定预测模型的例子（把 `your-provider` / `your-model` 换成你 ZCode 里实际存在的 provider id 和 model id；留空则跟随当前会话）：
 
 ```json
 {
   "predict": {
-    "providerId": "new-provider",
-    "modelId": "cn:deepseek-v4.1-flash"
+    "providerId": "your-provider",
+    "modelId": "your-model"
   }
 }
 ```
