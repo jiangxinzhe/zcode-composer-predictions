@@ -5,3 +5,4 @@ zcp.log.1
 app.asar.zcp.tmp
 __pycache__/
 *.pyc
+dist/

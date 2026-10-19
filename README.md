@@ -23,18 +23,30 @@
 
 ## 安装
 
-### 1. 克隆仓库
+### 方式一：下载 Release（推荐）
 
-```bash
-git clone https://github.com/jiangxinzhe/zcode-composer-predictions.git
-cd zcode-composer-predictions
-```
+打开 [Releases](https://github.com/jiangxinzhe/zcode-composer-predictions/releases/latest)，下载：
 
-### 2. 运行安装器
+- `zcode-composer-predictions-v0.1.0.zip`（Windows / macOS 通用）
+- 或 `zcode-composer-predictions-v0.1.0.tar.gz`（macOS / Linux 习惯用 tar.gz）
+
+解压后进入目录，运行：
 
 ```bash
 python install.py
 ```
+
+Release 页面上的 `SHA256SUMS.txt` 里有安装包校验值，可自行核对。
+
+### 方式二：从源码安装
+
+```bash
+git clone https://github.com/jiangxinzhe/zcode-composer-predictions.git
+cd zcode-composer-predictions
+python install.py
+```
+
+### 安装器会做什么
 
 安装器会做四件事：
 
@@ -45,7 +57,7 @@ python install.py
 
 安装器不会覆盖已有的 `config.json`，只补缺失字段。
 
-### 3. 退出并重启 ZCode
+### 退出并重启 ZCode
 
 安装完成后**完全退出 ZCode，再重新打开**（不是只关窗口；确保托盘/后台进程也退出）。
 
@@ -63,7 +75,7 @@ python "$HOME/.zcode/zcode-composer-predictions/patch_install.py" install --fina
 
 finalizer 的日志在 `~/.zcode/zcode-composer-predictions/finalize.log`。看到 `patched app.asar successfully` 就说明 asar 已经替换完成。
 
-### 4. 验证
+### 验证
 
 1. 发一条短消息，等回复结束；
 2. 点一下空的输入框，应该出现灰色建议；
