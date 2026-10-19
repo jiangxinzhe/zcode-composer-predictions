@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ZCode composer predictions - demo</title>
+  <style>
+    :root {
+      --color-background: #1d1d1d;
+      --color-border: #343434;
+      --color-foreground: #e8e8e8;
+      --color-text-ghost: #8b8b8b;
+      --bg: #0f0f0f;
+      --panel: #171717;
+      --line: #292929;
+      --muted: #8a8a8a;
+      --text: #e8e8e8;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+        "Microsoft YaHei", system-ui, sans-serif;
+      overflow: hidden;
+    }
+    .app { display: flex; height: 100vh; }
+    .sidebar {
+      width: 250px;
+      flex: 0 0 250px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      padding: 18px 14px;
+    }
+    .brand {
+      display: flex; align-items: center; gap: 8px;
+      font-weight: 700; font-size: 14px; margin-bottom: 20px;
+    }
+    .brand-mark {
+      width: 20px; height: 20px; border-radius: 6px;
+      background: #f0f0f0; color: #111;
+      display: grid; place-items: center;
+      font-size: 12px; font-weight: 800;
+    }
+    .nav-item {
+      display: flex; align-items: center; gap: 9px;
+      padding: 8px 9px; border-radius: 8px;
+      color: #cfcfcf; font-size: 13px;
+    }
+    .nav-item + .nav-item { margin-top: 2px; }
+    .nav-item.active { background: #262626; color: #fff; }
+    .nav-icon { width: 15px; text-align: center; opacity: .75; }
+    .section-label {
+      margin: 22px 9px 8px; color: #6f6f6f;
+      font-size: 11px; letter-spacing: .04em;
+    }
+    .task {
+      padding: 8px 9px; border-radius: 8px;
+      color: #bdbdbd; font-size: 12.5px;
+      display: flex; justify-content: space-between; gap: 8px;
+    }
+    .task.active { background: #262626; color: #fff; }
+    .task .time { color: #6f6f6f; font-size: 11px; white-space: nowrap; }
+    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .topbar {
+      height: 48px; flex: 0 0 48px;
+      border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 24px; color: #d6d6d6; font-size: 13px;
+    }
+    .topbar .crumb { display: flex; align-items: center; gap: 9px; }
+    .topbar .doc { color: #7d7d7d; }
+    .topbar .more { color: #8a8a8a; letter-spacing: 2px; }
+    .messages {
+      flex: 1; min-height: 0; overflow: hidden;
+      padding: 34px 72px 12px;
+    }
+    .thread { max-width: 860px; margin: 0 auto; }
+    .bubble-user {
+      margin-left: auto; width: fit-content; max-width: 560px;
+      background: #242424; border: 1px solid #303030;
+      border-radius: 14px; padding: 11px 15px;
+      font-size: 14px; line-height: 1.65; color: #e8e8e8;
+      margin-bottom: 24px;
+    }
+    .assistant { font-size: 14px; line-height: 1.75; color: #d8d8d8; }
+    .assistant p { margin: 0 0 12px; }
+    .assistant .ok { color: #9bd1a4; }
+    .assistant ul { margin: 0 0 12px; padding-left: 20px; }
+    .assistant li { margin: 4px 0; }
+    .assistant code {
+      background: #242424; border: 1px solid #333;
+      border-radius: 5px; padding: 1px 5px;
+      font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px;
+    }
+    .composer-dock { flex: 0 0 auto; padding: 10px 72px 26px; }
+    .composer {
+      max-width: 860px; margin: 0 auto;
+      background: #1d1d1d; border: 1px solid #343434;
+      border-radius: 16px; padding: 12px 14px 10px;
+      box-shadow: 0 10px 34px rgba(0, 0, 0, .28);
+    }
+    .relative { position: relative; }
+    #editor {
+      min-height: 44px; max-height: 160px; overflow-y: auto;
+      outline: none; white-space: pre-wrap; word-break: break-word;
+      font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      padding: 2px 4px; color: var(--text);
+    }
+    #placeholder {
+      position: absolute; left: 0; top: 0; padding: 2px 4px;
+      color: #6f6f6f; font: 15px/1.65 -apple-system, BlinkMacSystemFont,
+        "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      pointer-events: none;
+    }
+    .toolbar {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: 8px; color: #808080; font-size: 12px;
+    }
+    .toolbar-left { display: flex; align-items: center; gap: 12px; }
+    .chip {
+      border: 1px solid #363636; border-radius: 7px;
+      padding: 2px 7px; color: #9a9a9a;
+    }
+    .send {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: #ededed; color: #111;
+      display: grid; place-items: center;
+      font-size: 15px; font-weight: 700;
+    }
+    .footnote {
+      max-width: 860px; margin: 10px auto 0;
+      color: #5f5f5f; font-size: 11px; text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">Z</div>
+        <div>ZCode</div>
+      </div>
+      <div class="nav-item"><span class="nav-icon">+</span>新建任务</div>
+      <div class="nav-item"><span class="nav-icon">⌕</span>搜索</div>
+      <div class="nav-item"><span class="nav-icon">⟳</span>自动化</div>
+      <div class="nav-item"><span class="nav-icon">▦</span>插件市场</div>
+
+      <div class="section-label">已置顶</div>
+      <div class="task active"><span>示例任务：输入预测</span><span class="time">刚刚</span></div>
+      <div class="task"><span>修复登录页样式</span><span class="time">2 小时</span></div>
+      <div class="task"><span>补充接口测试</span><span class="time">昨天</span></div>
+      <div class="task"><span>整理发布说明</span><span class="time">3 天</span></div>
+
+      <div class="section-label">项目</div>
+      <div class="task"><span>demo-project</span><span class="time"></span></div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div class="crumb"><span class="doc">▤</span><span>示例任务：输入预测</span></div>
+        <div class="more">···</div>
+      </div>
+
+      <div class="messages">
+        <div class="thread">
+          <div class="bubble-user">帮我把设置页的默认主题改成暗色，顺便检查一下移动端。</div>
+          <div class="assistant">
+            <p>已确认设置页和主题配置的位置，改动集中在 <code>settings.ui_theme</code> 和主题注册表：</p>
+            <ul>
+              <li>默认值改为 <code>dark</code>，保留 <code>light</code> / <code>system</code> 选项；</li>
+              <li>移动端断点下同步调整卡片、表格和弹窗的背景与边框；</li>
+              <li>主题切换后做了刷新验证，桌面和 375px 宽度下都没有出现对比度问题。</li>
+            </ul>
+            <p class="ok">改动已完成，相关测试通过。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="composer-dock" data-v4-composer-dock="true">
+        <div class="composer">
+          <div class="relative">
+            <div id="editor" data-lexical-editor="true" contenteditable="true"
+                 aria-placeholder="输入消息，@ 引用文件，/ 使用命令"></div>
+            <div id="placeholder" class="pointer-events-none absolute left-0 top-0">输入消息，@ 引用文件，/ 使用命令</div>
+          </div>
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <span class="chip">deepseek-v4.1-flash</span>
+              <span>@ 文件</span>
+              <span>/ 命令</span>
+            </div>
+            <div class="send">↑</div>
+          </div>
+        </div>
+        <div class="footnote">演示图使用插件真实的 overlay 渲染，非真实会话数据</div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../overlay.js"></script>
+  <script>
+    window.addEventListener("load", function () {
+      window.__zcpShowSuggestion({
+        text: "把暗色主题的对比度再调一下，顺便截个图给我看看",
+        sessionId: "sess_demo",
+        messageId: "msg_demo",
+        model: "deepseek-v4.1-flash",
+        latencyMs: 1800
+      });
+    });
+  </script>
+</body>
+</html>
