@@ -1,0 +1,7 @@
+config.json
+zcp.log
+zcp.log.1
+.entry-check.js
+app.asar.zcp.tmp
+__pycache__/
+*.pyc

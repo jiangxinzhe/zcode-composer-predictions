@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>ZCP composer smoke test</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #f6f6f6; margin: 0; padding: 40px; }
+    #dock { width: 640px; margin: 120px auto 0; }
+    .composer { border: 1px solid #d0d0d0; border-radius: 16px; background: #fff; padding: 12px; }
+    .relative { position: relative; flex: 1; }
+    #editor {
+      min-height: 40px; max-height: 160px; overflow-y: auto; outline: none;
+      white-space: pre-wrap; word-break: break-word; font: 16px/1.5 system-ui, sans-serif;
+      padding: 4px 6px; color: #111;
+    }
+    #placeholder {
+      position: absolute; left: 0; top: 0; padding: 4px 6px;
+      pointer-events: none; color: #a3a3a3; font: 16px/1.5 system-ui, sans-serif;
+    }
+    #log { width: 640px; margin: 16px auto; font: 13px/1.6 monospace; white-space: pre-wrap; color: #333; }
+    button { font: 14px system-ui, sans-serif; padding: 6px 10px; }
+  </style>
+</head>
+<body>
+  <div style="width:640px;margin:0 auto">
+    <button id="show">show suggestion</button>
+    <button id="clear">clear</button>
+    <button id="reset">reset editor</button>
+    <span id="state"></span>
+  </div>
+
+  <div id="dock" data-v4-composer-dock="true">
+    <div class="composer">
+      <div class="relative">
+        <div id="editor" data-lexical-editor="true" contenteditable="true"
+             aria-placeholder="输入消息..."></div>
+        <div id="placeholder" class="pointer-events-none absolute left-0 top-0">输入消息...</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="log"></div>
+
+  <script src="../overlay.js"></script>
+  <script>
+    const editor = document.getElementById('editor');
+    const placeholder = document.getElementById('placeholder');
+    const state = document.getElementById('state');
+    const logEl = document.getElementById('log');
+
+    function updateState() {
+      const text = (editor.innerText || '').replace(/\u200b/g, '').trim();
+      state.textContent = text ? 'draft: ' + text : 'draft empty';
+      placeholder.style.display = text ? 'none' : 'block';
+      logEl.textContent = 'editor text: ' + JSON.stringify(text) + '\n' +
+        'placeholder visible: ' + (placeholder.style.visibility !== 'hidden') + '\n' +
+        'ghost: ' + (document.getElementById('zcp-ghost') || {}).textContent;
+    }
+
+    editor.addEventListener('input', updateState);
+    document.getElementById('show').addEventListener('click', function () {
+      window.__zcpShowSuggestion({
+        text: '帮我把这个页面改成深色主题',
+        sessionId: 'sess_test',
+        messageId: 'msg_test',
+        model: 'test-model',
+        latencyMs: 123
+      });
+      updateState();
+    });
+    document.getElementById('clear').addEventListener('click', function () {
+      window.__zcpClear();
+      updateState();
+    });
+    document.getElementById('reset').addEventListener('click', function () {
+      editor.textContent = '';
+      window.__zcpClear();
+      updateState();
+      editor.focus();
+    });
+
+    updateState();
+  </script>
+</body>
+</html>

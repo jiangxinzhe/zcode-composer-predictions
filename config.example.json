@@ -1,0 +1,23 @@
+{
+  "version": "0.1.0",
+  "enabled": true,
+  "pythonPath": "python",
+  "dbDir": "",
+  "activityDebounceMs": 500,
+  "heartbeatMs": 15000,
+  "predictTimeoutMs": 45000,
+  "statusTimeoutMs": 6000,
+  "helperRestartMs": 1000,
+  "hotReload": true,
+  "debug": false,
+  "predict": {
+    "providerId": "",
+    "modelId": "",
+    "maxChars": 160,
+    "maxTranscriptChars": 12000,
+    "maxMessageChars": 4000,
+    "maxMessages": 16,
+    "timeoutMs": 30000,
+    "maxTokens": 400
+  }
+}
