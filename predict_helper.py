@@ -27,7 +27,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 
 DEFAULTS = {
     "enabled": True,
@@ -51,6 +51,10 @@ SYSTEM_PROMPT = (
     "message: no quotes, no explanation, no markdown fences. Keep it short. "
     "If there is no useful prediction, return exactly SKIP."
 )
+
+# A prediction answer needs only a few hundred characters; a misbehaving
+# provider must not be able to stream an unbounded body into memory.
+MAX_RESPONSE_BYTES = 64 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -434,15 +438,29 @@ def normalize_url(base_url: str, api_type: str) -> str:
     return base + "/chat/completions"
 
 
+def _read_limited(response, limit: int) -> bytes:
+    chunks = []
+    total = 0
+    while True:
+        chunk = response.read(min(8192, limit - total + 1))
+        if not chunk:
+            break
+        total += len(chunk)
+        chunks.append(chunk)
+        if total > limit:
+            raise RuntimeError("model response exceeded %d bytes" % limit)
+    return b"".join(chunks)
+
+
 def _http_json(url: str, headers: dict, body: dict, timeout_s: float) -> tuple[int, dict]:
     data = json.dumps(body, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(request, timeout=timeout_s) as response:
-            raw = response.read()
+            raw = _read_limited(response, MAX_RESPONSE_BYTES)
             return response.status, json.loads(raw.decode("utf-8", "replace"))
     except urllib.error.HTTPError as exc:
-        raw = exc.read()
+        raw = exc.read(MAX_RESPONSE_BYTES)
         try:
             parsed = json.loads(raw.decode("utf-8", "replace"))
         except ValueError:

@@ -28,7 +28,7 @@ const HELPER = path.join(HERE, "predict_helper.py");
 const LOG_FILE = path.join(HERE, "zcp.log");
 const LOG_MAX = 2 * 1024 * 1024;
 const IPC_ACTIVE_SID = "zcode:sync-active-task-session";
-const VERSION = "0.1.0";
+const VERSION = "0.1.1";
 
 const DEFAULTS = {
   enabled: true,
@@ -38,6 +38,8 @@ const DEFAULTS = {
   heartbeatMs: 15000,
   predictTimeoutMs: 45000,
   statusTimeoutMs: 6000,
+  predictRetryMs: 15000,
+  predictMaxAttempts: 3,
   helperRestartMs: 1000,
   hotReload: true,
   debug: false,
@@ -440,6 +442,31 @@ function oneShot(payload, timeoutMs) {
 
 const lastPredicted = new Map(); // sessionId -> assistant message id
 const busySessions = new Set();
+const attempts = new Map(); // "sessionId|messageId" -> failed attempt count
+
+/* Definitive outcomes (turn settled but no usable prediction) stop retrying;
+   transient failures (timeout, model HTTP error, spawn failure) retry a few
+   times before giving up on this assistant message. */
+const NO_RETRY_REASONS = ["turn-not-complete", "empty-transcript", "missing-model"];
+
+function registerAttempt(sid, messageId) {
+  const key = sid + "|" + messageId;
+  const next = (attempts.get(key) || 0) + 1;
+  const max = Math.max(1, config().predictMaxAttempts | 0 || 3);
+  if (next >= max) {
+    attempts.delete(key);
+    lastPredicted.set(sid, messageId);
+    log("predict gave up after", next, "attempts", sid.slice(0, 18));
+    return false;
+  }
+  attempts.set(key, next);
+  if (attempts.size > 200) attempts.delete(attempts.keys().next().value);
+  return true;
+}
+
+function clearAttempts(sid, messageId) {
+  attempts.delete(sid + "|" + messageId);
+}
 let checkInFlight = false;
 let checkAgain = false;
 let retryTimer = 0;
@@ -532,24 +559,43 @@ async function maybeCheck() {
           { cmd: "predict", sessionId: sid },
           config().predictTimeoutMs
         );
-        lastPredicted.set(sid, status.messageId);
 
         if (!result || !result.ok) {
-          log("predict failed", result && (result.reason || result.error));
+          const reason = (result && (result.reason || result.error)) || "unknown";
+          log("predict failed", reason);
+          if (!NO_RETRY_REASONS.includes(reason)) {
+            if (registerAttempt(sid, status.messageId)) {
+              scheduleCheck(Math.max(1000, config().predictRetryMs | 0 || 15000));
+            }
+          } else {
+            lastPredicted.set(sid, status.messageId);
+          }
           continue;
         }
         if (!result.suggestion) {
+          lastPredicted.set(sid, status.messageId);
+          clearAttempts(sid, status.messageId);
           debugLog("model returned SKIP/SKIP-like", sid.slice(0, 16));
           continue;
         }
-        if (activeSid.get(wc.id) !== sid || wc.isDestroyed()) continue;
-
-        const finalOk = await askShouldPredict(wc);
-        if (!finalOk || !finalOk.ok) {
-          debugLog("composer no longer empty, drop suggestion");
+        if (activeSid.get(wc.id) !== sid || wc.isDestroyed()) {
+          if (registerAttempt(sid, status.messageId)) {
+            scheduleCheck(Math.max(1000, config().predictRetryMs | 0 || 15000));
+          }
           continue;
         }
 
+        const finalOk = await askShouldPredict(wc);
+        if (!finalOk || !finalOk.ok) {
+          debugLog("composer no longer empty, retry prediction later");
+          if (registerAttempt(sid, status.messageId)) {
+            scheduleCheck(Math.max(1000, config().predictRetryMs | 0 || 15000));
+          }
+          continue;
+        }
+
+        lastPredicted.set(sid, status.messageId);
+        clearAttempts(sid, status.messageId);
         pushSuggestion(wc, {
           text: result.suggestion,
           sessionId: sid,
@@ -564,8 +610,10 @@ async function maybeCheck() {
           (result.elapsedMs || Date.now() - started) + "ms"
         );
       } catch (e) {
-        lastPredicted.set(sid, status.messageId);
         log("predict error", e.message);
+        if (registerAttempt(sid, status.messageId)) {
+          scheduleCheck(Math.max(1000, config().predictRetryMs | 0 || 15000));
+        }
       } finally {
         busySessions.delete(sid);
       }

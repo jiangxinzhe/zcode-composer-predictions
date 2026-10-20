@@ -17,7 +17,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "0.1.0";
+  var VERSION = "0.1.1";
   var ENABLED_KEY = "zcp.enabled";
   var DEBUG_KEY = "zcp.debug";
   var ZH = /^zh/i.test(navigator.language || "");

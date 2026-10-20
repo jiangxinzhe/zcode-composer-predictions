@@ -25,10 +25,10 @@
 
 ### 方式一：下载 Release（推荐）
 
-打开 [Releases](https://github.com/jiangxinzhe/zcode-composer-predictions/releases/latest)，下载：
+打开 [Releases](https://github.com/jiangxinzhe/zcode-composer-predictions/releases/latest)，下载最新版本（示例为 v0.1.1）：
 
-- `zcode-composer-predictions-v0.1.0.zip`（Windows / macOS 通用）
-- 或 `zcode-composer-predictions-v0.1.0.tar.gz`（macOS / Linux 习惯用 tar.gz）
+- `zcode-composer-predictions-v0.1.1.zip`（Windows / macOS 通用）
+- 或 `zcode-composer-predictions-v0.1.1.tar.gz`（macOS / Linux 习惯用 tar.gz）
 
 解压后进入目录，运行：
 
@@ -99,6 +99,8 @@ finalizer 的日志在 `~/.zcode/zcode-composer-predictions/finalize.log`。看�
 | `predict.maxTranscriptChars` | 发给模型的对话上限，默认 12000 字符 |
 | `predict.maxMessageChars` | 单条消息截断上限，默认 4000 字符 |
 | `predict.timeoutMs` | 模型请求超时，默认 30 秒 |
+| `predictRetryMs` | 预测失败后的重试间隔，默认 15 秒 |
+| `predictMaxAttempts` | 同一条消息最多重试次数，默认 3 |
 | `debug` | 写入更详细的日志 |
 
 指定预测模型的例子（把 `your-provider` / `your-model` 换成你 ZCode 里实际存在的 provider id 和 model id；留空则跟随当前会话）：
@@ -134,12 +136,26 @@ python install.py --remove
 
 建议在 ZCode 完全关闭时卸载；如果正在运行，`app.asar` 可能被锁，卸载会失败并提示你退出后重试。
 
+## 更新
+
+已经装过旧版本的话，重跑安装器即可同步运行时并更新注入：
+
+```bash
+python install.py
+```
+
+### v0.1.1 的变化
+
+- 预测请求遇到网络/超时等瞬时错误时，最多重试 3 次（间隔 15 秒），不再把这一轮永久跳过；确定性的 `SKIP`/无内容仍会记住，不会反复请求。
+- 模型响应加了 64KB 大小上限，异常 provider 不会把超大 body 读进内存。
+- 首次运行仍默认开启，✦ / `Alt+P` 可随时关闭。
+
 ## 常见问题
 
 **重启后没有灰色建议**
 
 - 先看 `finalize.log` 是否出现 `patched app.asar successfully`；
-- 再看 `zcp.log` 是否有 `loaded v0.1.0`、`helper started`、`predicting`；
+- 再看 `zcp.log` 是否有 `loaded v0.1.1`、`helper started`、`predicting`；
 - 确认回复结束后输入框是空的，且没有正在输入；
 - 用 `predict_helper.py status --session <id>` 确认 `state: complete`；
 - 如果日志里是 `provider ... not found`，在 `config.json` 里显式指定 `predict.providerId` 和 `modelId`。
