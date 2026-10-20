@@ -138,10 +138,44 @@ python install.py --remove
 
 ## 更新
 
-已经装过旧版本的话，重跑安装器即可同步运行时并更新注入：
+### 如果你是 git clone 装的
 
 ```bash
-python install.py
+cd zcode-composer-predictions
+git pull
+python install.py          # 同步运行时 + 更新 asar 注入行
+```
+
+### 如果你是下载 Release 解压装的
+
+不用重新下载安装包，直接**在运行时目录**重跑安装器即可。运行时目录是 `~/.zcode/zcode-composer-predictions/`：
+
+```bash
+python ~/.zcode/zcode-composer-predictions/install.py
+```
+
+（Windows 下路径通常是 `C:\Users\<你>\.zcode\zcode-composer-predictions\install.py`）
+
+`install.py` 会做三件事：
+
+1. 把本目录的源码同步到运行时副本；
+2. 更新 `app.asar` 里的注入行（指向运行时副本）；
+3. 处理 ZCode 正在运行时的 `app.asar` 锁定（退出后自动替换）。
+
+改的是注入行指向的**运行时文件**版本，升级后**完全退出并重启 ZCode** 生效。`overlay.js` 开了热更新的话，改完大概 2 秒自动生效；主进程 loader 或 helper 升级则需要重启。
+
+### 确认版本
+
+重启后看日志：
+
+```bash
+tail -20 ~/.zcode/zcode-composer-predictions/zcp.log
+```
+
+应出现 `loaded v0.1.1`。也可以直接看版本号：
+
+```bash
+grep 'VERSION' ~/.zcode/zcode-composer-predictions/predict_helper.py
 ```
 
 ### v0.1.1 的变化
