@@ -27,13 +27,15 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
 
 DEFAULTS = {
     "enabled": True,
     "predict": {
         "providerId": "",
         "modelId": "",
+        "fallbackProviderId": "",
+        "fallbackModelId": "",
         "maxChars": 160,
         "maxTranscriptChars": 12000,
         "maxMessageChars": 4000,
@@ -426,6 +428,35 @@ def resolve_provider(provider_id: str, model_id: str) -> dict:
     return chosen
 
 
+def resolve_predict_provider(predict_cfg: dict, provider_id: str, model_id: str) -> tuple[dict, str, bool]:
+    """Resolve the provider to predict with, falling back when it is unusable.
+
+    The primary provider is the pinned ``predict.providerId`` when set, else the
+    session's own provider.  Built-in plan providers (``account:...``) carry no
+    directly callable baseUrl/apiKey -- their credentials live encrypted inside
+    the app -- so following the session model cannot always work.  When the
+    primary provider cannot be resolved, a configured fallback
+    (``predict.fallbackProviderId``/``fallbackModelId``) keeps predictions
+    working in every session.
+
+    Returns (provider, model_id, used_fallback); raises RuntimeError when there
+    is no usable provider at all.
+    """
+    try:
+        return resolve_provider(provider_id, model_id), model_id, False
+    except RuntimeError as primary_error:
+        fallback_id = (predict_cfg.get("fallbackProviderId") or "").strip()
+        if not fallback_id:
+            raise RuntimeError(
+                "%s; set predict.fallbackProviderId and predict.fallbackModelId "
+                "in config.json to keep predictions working in these sessions"
+                % primary_error
+            ) from None
+        fallback_model = (predict_cfg.get("fallbackModelId") or "").strip() or model_id
+        provider = resolve_provider(fallback_id, fallback_model)
+        return provider, fallback_model, True
+
+
 def normalize_url(base_url: str, api_type: str) -> str:
     base = (base_url or "").strip().rstrip("/")
     kind = (api_type or "").lower()
@@ -661,7 +692,9 @@ def cmd_predict(session_id: str, max_chars_override=None, dry_run=False) -> dict
             "prompt": SYSTEM_PROMPT,
         }
 
-    provider = resolve_provider(provider_id, model_id)
+    provider, model_id, used_fallback = resolve_predict_provider(
+        predict_cfg, provider_id, model_id
+    )
     result = predict_with_model(
         provider,
         model_id,
@@ -671,8 +704,9 @@ def cmd_predict(session_id: str, max_chars_override=None, dry_run=False) -> dict
         timeout_s,
     )
     result["messageId"] = status.get("messageId")
-    result["providerId"] = provider_id
+    result["providerId"] = provider.get("providerId") or provider_id
     result["modelId"] = model_id
+    result["usedFallback"] = used_fallback
     return result
 
 

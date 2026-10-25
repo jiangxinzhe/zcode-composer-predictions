@@ -1,5 +1,5 @@
 {
-  "version": "0.1.1",
+  "version": "0.1.2",
   "enabled": true,
   "pythonPath": "python",
   "dbDir": "",
@@ -13,6 +13,8 @@
   "predict": {
     "providerId": "",
     "modelId": "",
+    "fallbackProviderId": "",
+    "fallbackModelId": "",
     "maxChars": 160,
     "maxTranscriptChars": 12000,
     "maxMessageChars": 4000,

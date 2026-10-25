@@ -207,6 +207,101 @@ class HelperTests(unittest.TestCase):
             self.assertEqual(provider["apiType"], "anthropic-messages")
             self.assertEqual(provider["baseUrl"], "https://x/api")
 
+    # -- resolve_predict_provider (v0.1.2 fallback) -------------------------
+
+    def _fallback_provider_config(self, tmp):
+        path = Path(tmp) / "provider_config.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "config": {
+                        "providerConfigRules": {
+                            "providerRules": [
+                                {
+                                    "providerId": "fb1",
+                                    "providerName": "Fallback",
+                                    "config": {
+                                        "access": {"apiKey": "k"},
+                                        "api": {
+                                            "type": "openai-chat-completions",
+                                            "baseUrl": "http://localhost/v1",
+                                        },
+                                        "personalModelIds": ["m2"],
+                                    },
+                                },
+                                {
+                                    # Built-in plan provider: known to ZCode but
+                                    # without a directly callable baseUrl/apiKey.
+                                    "providerId": "account:some-plan",
+                                    "config": {"personalModelIds": ["m1"]},
+                                },
+                            ]
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def test_fallback_used_when_primary_unresolvable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fallback_provider_config(tmp)
+            with mock.patch.object(h, "_provider_config_candidates", return_value=[path]):
+                provider, model_id, used = h.resolve_predict_provider(
+                    {"fallbackProviderId": "fb1", "fallbackModelId": "m2"},
+                    "account:some-plan",
+                    "m1",
+                )
+            self.assertTrue(used)
+            self.assertEqual(provider["providerId"], "fb1")
+            self.assertEqual(provider["baseUrl"], "http://localhost/v1")
+            self.assertEqual(model_id, "m2")
+
+    def test_fallback_model_defaults_to_primary_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fallback_provider_config(tmp)
+            with mock.patch.object(h, "_provider_config_candidates", return_value=[path]):
+                _, model_id, used = h.resolve_predict_provider(
+                    {"fallbackProviderId": "fb1"},
+                    "account:some-plan",
+                    "cn:m1",
+                )
+            self.assertTrue(used)
+            self.assertEqual(model_id, "cn:m1")
+
+    def test_primary_provider_still_wins_when_resolvable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fallback_provider_config(tmp)
+            with mock.patch.object(h, "_provider_config_candidates", return_value=[path]):
+                provider, model_id, used = h.resolve_predict_provider(
+                    {"fallbackProviderId": "fb1", "fallbackModelId": "m2"},
+                    "fb1",
+                    "m2",
+                )
+            self.assertFalse(used)
+            self.assertEqual(model_id, "m2")
+
+    def test_no_fallback_configured_raises_with_hint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fallback_provider_config(tmp)
+            with mock.patch.object(h, "_provider_config_candidates", return_value=[path]):
+                with self.assertRaises(RuntimeError) as cm:
+                    h.resolve_predict_provider({}, "account:some-plan", "m1")
+            self.assertIn("fallbackProviderId", str(cm.exception))
+            self.assertIn("has no baseUrl", str(cm.exception))
+
+    def test_unresolvable_fallback_provider_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fallback_provider_config(tmp)
+            with mock.patch.object(h, "_provider_config_candidates", return_value=[path]):
+                with self.assertRaises(RuntimeError):
+                    h.resolve_predict_provider(
+                        {"fallbackProviderId": "missing"},
+                        "account:some-plan",
+                        "m1",
+                    )
+
 
 if __name__ == "__main__":
     unittest.main()

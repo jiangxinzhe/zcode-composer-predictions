@@ -28,7 +28,7 @@ const HELPER = path.join(HERE, "predict_helper.py");
 const LOG_FILE = path.join(HERE, "zcp.log");
 const LOG_MAX = 2 * 1024 * 1024;
 const IPC_ACTIVE_SID = "zcode:sync-active-task-session";
-const VERSION = "0.1.1";
+const VERSION = "0.1.2";
 
 const DEFAULTS = {
   enabled: true,
