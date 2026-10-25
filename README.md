@@ -25,10 +25,10 @@
 
 ### 方式一：下载 Release（推荐）
 
-打开 [Releases](https://github.com/jiangxinzhe/zcode-composer-predictions/releases/latest)，下载最新版本（示例为 v0.1.1）：
+打开 [Releases](https://github.com/jiangxinzhe/zcode-composer-predictions/releases/latest)，下载最新版本（示例为 v0.1.2）：
 
-- `zcode-composer-predictions-v0.1.1.zip`（Windows / macOS 通用）
-- 或 `zcode-composer-predictions-v0.1.1.tar.gz`（macOS / Linux 习惯用 tar.gz）
+- `zcode-composer-predictions-v0.1.2.zip`（Windows / macOS 通用）
+- 或 `zcode-composer-predictions-v0.1.2.tar.gz`（macOS / Linux 习惯用 tar.gz）
 
 解压后进入目录，运行：
 
@@ -95,6 +95,7 @@ finalizer 的日志在 `~/.zcode/zcode-composer-predictions/finalize.log`。看�
 | `pythonPath` | 运行 helper 的 Python 绝对路径，安装器会自动写入 |
 | `dbDir` | 会话数据库目录；留空 = `~/.zcode/cli/db` |
 | `predict.providerId` / `modelId` | 留空 = 跟随当前会话的模型；建议填一个便宜的 flash 模型 |
+| `predict.fallbackProviderId` / `fallbackModelId` | 备用预测 provider：会话模型无法用于预测时（如账号套餐型 provider）自动改用它，见下文 |
 | `predict.maxChars` | 建议长度上限，默认 160 |
 | `predict.maxTranscriptChars` | 发给模型的对话上限，默认 12000 字符 |
 | `predict.maxMessageChars` | 单条消息截断上限，默认 4000 字符 |
@@ -113,6 +114,26 @@ finalizer 的日志在 `~/.zcode/zcode-composer-predictions/finalize.log`。看�
   }
 }
 ```
+
+### 让预测在“任何会话”里都能工作
+
+跟随会话模型有一个前提：该 provider 必须有 helper 能直接调用的 `baseUrl` + `apiKey`。**内置账号套餐型 provider（id 形如 `account:...`，比如登录后赠送的套餐）不满足**——它的凭证加密存在 ZCode 应用内部，外部 helper 拿不到，这类会话里预测会一直失败（日志报 `provider ... has no baseUrl`）。
+
+两种解法：
+
+1. **固定预测模型**（上面的例子）：所有会话统一用一个便宜的自定义 provider；
+2. **备用 provider**（推荐）：平时仍跟随会话模型，只有当会话模型无法用于预测时才切换：
+
+```json
+{
+  "predict": {
+    "fallbackProviderId": "your-provider",
+    "fallbackModelId": "your-model"
+  }
+}
+```
+
+`fallbackModelId` 留空时会沿用会话的模型 id（要求备用 provider 提供同名模型）；预测结果里的 `"usedFallback": true` 表示本次走了备用。
 
 helper 会从以下位置找 provider 配置：`ZCODE_DATA_BASE_DIR/.zcode/v2/provider_config.json`、`~/.zcode/v2/provider_config.json`、`~/.zcode/cli/config.json`。它按 ZCode 自己的 provider 配置发请求，不经过 ZCode 的内部接口。
 
@@ -172,11 +193,17 @@ python ~/.zcode/zcode-composer-predictions/install.py
 tail -20 ~/.zcode/zcode-composer-predictions/zcp.log
 ```
 
-应出现 `loaded v0.1.1`。也可以直接看版本号：
+应出现 `loaded v0.1.2`。也可以直接看版本号：
 
 ```bash
 grep 'VERSION' ~/.zcode/zcode-composer-predictions/predict_helper.py
 ```
+
+### v0.1.2 的变化
+
+- **备用预测 provider（`predict.fallbackProviderId` / `fallbackModelId`）**：会话模型无法用于预测时（典型场景：内置账号套餐型 provider，凭证加密在应用内、没有可直接调用的 baseUrl/apiKey），自动改用备用 provider，预测在任何会话里都能出；未配置备用时，错误提示会明确给出配置建议。
+- 预测结果新增 `"usedFallback"` 字段，方便确认本次是否走了备用 provider。
+- README 补充“让预测在任何会话里都能工作”的说明与账号套餐型 provider 的常见问题。
 
 ### v0.1.1 的变化
 
@@ -189,10 +216,14 @@ grep 'VERSION' ~/.zcode/zcode-composer-predictions/predict_helper.py
 **重启后没有灰色建议**
 
 - 先看 `finalize.log` 是否出现 `patched app.asar successfully`；
-- 再看 `zcp.log` 是否有 `loaded v0.1.1`、`helper started`、`predicting`；
+- 再看 `zcp.log` 是否有 `loaded v0.1.2`、`helper started`、`predicting`；
 - 确认回复结束后输入框是空的，且没有正在输入；
 - 用 `predict_helper.py status --session <id>` 确认 `state: complete`；
 - 如果日志里是 `provider ... not found`，在 `config.json` 里显式指定 `predict.providerId` 和 `modelId`。
+
+**用账号套餐（登录赠送的套餐）的会话不出建议**
+
+日志里反复出现 `provider 'account:...' has no baseUrl`。这是预期行为：账号套餐的凭证加密在 ZCode 应用内部，helper 无法直接调用它。按上文[让预测在“任何会话”里都能工作](#让预测在任何会话里都能工作)配置固定模型或备用 provider 即可。
 
 **`replace failed` / `WinError 5 拒绝访问`**
 
