@@ -17,7 +17,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "0.1.3";
+  var VERSION = "0.1.4";
   var ENABLED_KEY = "zcp.enabled";
   var DEBUG_KEY = "zcp.debug";
   var ZH = /^zh/i.test(navigator.language || "");
@@ -45,6 +45,9 @@
     choice: { providerId: "", modelId: "" },
     choiceReady: false,
     modelsTimedOut: false,
+    // Set when the panel opens so the main process re-reads provider config;
+    // cleared once a fresh list arrives.
+    modelsDirty: false,
   };
 
   var els = {};
@@ -415,6 +418,9 @@
         event.stopPropagation();
         state.panelOpen = !state.panelOpen;
         els.panel.style.display = state.panelOpen ? "block" : "none";
+        // Providers may have been added in ZCode since startup; ask the main
+        // process for a fresh list (it polls this flag every 2s).
+        if (state.panelOpen) state.modelsDirty = true;
         updateStatus();
       },
       { signal: signal }
@@ -536,15 +542,22 @@
   function setModelOptions(payload) {
     if (!payload || typeof payload !== "object") return;
     var providers = Array.isArray(payload.providers) ? payload.providers : [];
+    var firstLoad = !state.choiceReady;
+    var pendingRefresh = state.modelsDirty;
     state.providers = providers.filter(function (provider) {
       return provider && provider.providerId;
     });
     var current = payload.current || {};
-    state.choice = {
-      providerId: typeof current.providerId === "string" ? current.providerId : "",
-      modelId: typeof current.modelId === "string" ? current.modelId : "",
-    };
+    // A refresh triggered by opening the panel must not overwrite a selection
+    // the user made in the meantime; only adopt the config value otherwise.
+    if (firstLoad || !pendingRefresh) {
+      state.choice = {
+        providerId: typeof current.providerId === "string" ? current.providerId : "",
+        modelId: typeof current.modelId === "string" ? current.modelId : "",
+      };
+    }
     state.choiceReady = true;
+    state.modelsDirty = false;
     buildModelOptions();
     updateStatus();
   }
@@ -554,6 +567,7 @@
       ready: state.choiceReady,
       providerId: (state.choice && state.choice.providerId) || "",
       modelId: (state.choice && state.choice.modelId) || "",
+      wantRefresh: state.modelsDirty,
     };
   }
 

@@ -27,7 +27,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.1.3"
+VERSION = "0.1.4"
 
 DEFAULTS = {
     "enabled": True,

@@ -28,7 +28,7 @@ const HELPER = path.join(HERE, "predict_helper.py");
 const LOG_FILE = path.join(HERE, "zcp.log");
 const LOG_MAX = 2 * 1024 * 1024;
 const IPC_ACTIVE_SID = "zcode:sync-active-task-session";
-const VERSION = "0.1.3";
+const VERSION = "0.1.4";
 
 const DEFAULTS = {
   enabled: true,
@@ -156,9 +156,9 @@ let modelCache = null;
 let modelCacheAt = 0;
 const MODEL_CACHE_MS = 60000;
 
-function getCallableModels() {
+function getCallableModels(force) {
   const now = Date.now();
-  if (modelCache && now - modelCacheAt < MODEL_CACHE_MS) {
+  if (!force && modelCache && now - modelCacheAt < MODEL_CACHE_MS) {
     return Promise.resolve(modelCache);
   }
   return requestHelper({ cmd: "models" }, config().statusTimeoutMs)
@@ -174,9 +174,9 @@ function getCallableModels() {
     });
 }
 
-function pushModelOptions(wc, attempt) {
+function pushModelOptions(wc, attempt, force) {
   const tries = attempt || 0;
-  getCallableModels()
+  getCallableModels(force)
     .then(function (providers) {
       if (wc.isDestroyed()) return;
       if (!providers.length) {
@@ -238,6 +238,8 @@ function writePredictSelection(providerId, modelId) {
 }
 
 let choiceWriting = false;
+const lastRefresh = new Map(); // webContents.id -> timestamp of last forced refresh
+const REFRESH_MIN_MS = 5000;
 
 function syncModelChoice() {
   if (choiceWriting) return;
@@ -255,6 +257,15 @@ function syncModelChoice() {
         } catch (e) {
           return;
         }
+        // Opening the settings panel asks for a fresh provider list, so new
+        // providers show up without restarting ZCode. Throttled per window.
+        if (choice && choice.wantRefresh) {
+          const now = Date.now();
+          if (now - (lastRefresh.get(wc.id) || 0) > REFRESH_MIN_MS) {
+            lastRefresh.set(wc.id, now);
+            pushModelOptions(wc, 0, true);
+          }
+        }
         // The overlay reports ready=false until it has the provider list;
         // writing before that would wipe a configured model.
         if (!choice || !choice.ready) return;
@@ -267,7 +278,6 @@ function syncModelChoice() {
         choiceWriting = true;
         try {
           if (!writePredictSelection(providerId, modelId)) return;
-          modelCacheAt = 0; // provider list unchanged; refresh other windows anyway
           for (const other of webContents.getAllWebContents()) {
             if (other !== wc && isMainWindow(other) && !other.isDestroyed()) {
               pushModelOptions(other);
@@ -314,6 +324,7 @@ function hookWindow(wc) {
   });
   wc.on("destroyed", function () {
     activeSid.delete(wc.id);
+    lastRefresh.delete(wc.id);
   });
   if (!wc.isLoading()) {
     injectOverlay(wc);
