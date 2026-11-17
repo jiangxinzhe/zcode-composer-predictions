@@ -27,7 +27,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.1.4"
+VERSION = "0.1.5"
 
 DEFAULTS = {
     "enabled": True,
@@ -500,6 +500,10 @@ def normalize_url(base_url: str, api_type: str) -> str:
     if "anthropic" in kind:
         if base.endswith("/v1/messages") or base.endswith("/messages"):
             return base
+        # Gateways often configure baseUrl as ".../v1"; appending "/v1/messages"
+        # would produce ".../v1/v1/messages" and a 404.
+        if base.endswith("/v1"):
+            return base + "/messages"
         return base + "/v1/messages"
     if base.endswith("/chat/completions"):
         return base

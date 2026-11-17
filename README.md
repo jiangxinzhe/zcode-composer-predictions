@@ -205,11 +205,16 @@ python ~/.zcode/zcode-composer-predictions/install.py
 tail -20 ~/.zcode/zcode-composer-predictions/zcp.log
 ```
 
-应出现 `loaded v0.1.4`。也可以直接看版本号：
+应出现 `loaded v0.1.5`。也可以直接看版本号：
 
 ```bash
 grep 'VERSION' ~/.zcode/zcode-composer-predictions/predict_helper.py
 ```
+
+### v0.1.5 的变化
+
+- **修复 `anthropic-messages` 类型 provider 的请求地址**：当 provider 的 `baseUrl` 已经带 `/v1`（例如 `https://api.apigoto.com/v1`）时，之前会拼成 `/v1/v1/messages`，请求返回 `404 page not found`、界面不再出建议。现在会正确拼成 `/v1/messages`。
+- 只改了 helper，升级后重启 helper 即可（kill 掉常驻 helper 会自动拉起），不必重启 ZCode。
 
 ### v0.1.4 的变化
 

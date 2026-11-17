@@ -134,6 +134,20 @@ class HelperTests(unittest.TestCase):
             h.normalize_url("https://api.anthropic.com/v1/messages", "anthropic-messages"),
             "https://api.anthropic.com/v1/messages",
         )
+        # Gateway baseUrl already ending in /v1 must not become /v1/v1/messages
+        # (regression: new-provider-8 returned HTTP 404 "page not found").
+        self.assertEqual(
+            h.normalize_url("https://api.apigoto.com/v1", "anthropic-messages"),
+            "https://api.apigoto.com/v1/messages",
+        )
+        self.assertEqual(
+            h.normalize_url("https://api.apigoto.com/v1/", "anthropic-messages"),
+            "https://api.apigoto.com/v1/messages",
+        )
+        self.assertEqual(
+            h.normalize_url("https://gw.example.com", "anthropic-messages"),
+            "https://gw.example.com/v1/messages",
+        )
 
     def test_clean_suggestion(self):
         self.assertEqual(h.clean_suggestion("SKIP", 160), "")
