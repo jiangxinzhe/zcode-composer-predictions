@@ -94,7 +94,7 @@ finalizer 的日志在 `~/.zcode/zcode-composer-predictions/finalize.log`。看�
 | `enabled` | 总开关，默认 `true` |
 | `pythonPath` | 运行 helper 的 Python 绝对路径，安装器会自动写入 |
 | `dbDir` | 会话数据库目录；留空 = `~/.zcode/cli/db` |
-| `predict.providerId` / `modelId` | 留空 = 跟随当前会话的模型；建议填一个便宜的 flash 模型 |
+| `predict.providerId` / `modelId` | 留空 = 跟随当前会话的模型；可在 ✦ 设置面板直接选，也可手工指定 |
 | `predict.fallbackProviderId` / `fallbackModelId` | 备用预测 provider：会话模型无法用于预测时（如账号套餐型 provider）自动改用它，见下文 |
 | `predict.maxChars` | 建议长度上限，默认 160 |
 | `predict.maxTranscriptChars` | 发给模型的对话上限，默认 12000 字符 |
@@ -114,6 +114,18 @@ finalizer 的日志在 `~/.zcode/zcode-composer-predictions/finalize.log`。看�
   }
 }
 ```
+
+### 在界面里选预测模型
+
+点击输入框右下角的 ✦，面板里有一项「预测模型」：
+
+- **跟随会话模型（默认）**：用当前会话自己的模型预测，等价于把 `providerId` / `modelId` 留空；
+- **预设模型**：列出 `provider_config.json` 里所有可直连的 provider 及其模型，选中即固定使用；
+- **自定义…**：供应商从上述列表选，模型 id 手工填（有些反代接受列表外的别名）。
+
+选择会写回 `config.json` 的 `predict.providerId` / `modelId`，helper 下一次预测就生效，不用重启。只能选有 `baseUrl` + `apiKey` 的 provider——`account:*` 这类套餐型不在列表里，它们无法被外部 helper 直接调用。
+
+面板只对当前这台机器生效；`fallbackProviderId` 仍需要手工编辑 `config.json`。
 
 ### 让预测在“任何会话”里都能工作
 
@@ -193,11 +205,17 @@ python ~/.zcode/zcode-composer-predictions/install.py
 tail -20 ~/.zcode/zcode-composer-predictions/zcp.log
 ```
 
-应出现 `loaded v0.1.2`。也可以直接看版本号：
+应出现 `loaded v0.1.3`。也可以直接看版本号：
 
 ```bash
 grep 'VERSION' ~/.zcode/zcode-composer-predictions/predict_helper.py
 ```
+
+### v0.1.3 的变化
+
+- **界面里可选预测模型**：✦ 设置面板新增「预测模型」，可选“跟随会话模型”（默认）、`provider_config.json` 里任一可直连 provider 的模型，或自定义供应商 + 手填模型 id。选择写回 `config.json`，下一次预测即生效，无需重启。
+- helper 新增 `models` 命令（`predict_helper.py models --pretty` 可手工查看列表），只返回有 `baseUrl` + `apiKey` 的 provider。
+- 面板状态行会显示当前生效的模型来源（跟随会话 / `provider / model`）。
 
 ### v0.1.2 的变化
 
