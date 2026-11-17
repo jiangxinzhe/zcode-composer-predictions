@@ -205,11 +205,16 @@ python ~/.zcode/zcode-composer-predictions/install.py
 tail -20 ~/.zcode/zcode-composer-predictions/zcp.log
 ```
 
-应出现 `loaded v0.1.3`。也可以直接看版本号：
+应出现 `loaded v0.1.4`。也可以直接看版本号：
 
 ```bash
 grep 'VERSION' ~/.zcode/zcode-composer-predictions/predict_helper.py
 ```
+
+### v0.1.4 的变化
+
+- **打开设置面板时刷新模型列表**：在 ZCode 里新增或修改 provider 后，点一下 ✦ 面板即可看到最新模型，不用重启客户端。刷新按窗口节流（5 秒内最多一次），面板打开期间不会覆盖你刚做的选择。
+- 面板状态行在模型列表未就绪时给出提示。
 
 ### v0.1.3 的变化
 
