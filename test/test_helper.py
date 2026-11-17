@@ -302,6 +302,73 @@ class HelperTests(unittest.TestCase):
                         "m1",
                     )
 
+    # -- callable_providers / cmd_models ------------------------------------
+
+    def test_callable_providers_lists_only_reachable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fallback_provider_config(tmp)
+            with mock.patch.object(h, "_provider_config_candidates", return_value=[path]):
+                providers = h.callable_providers()
+            # account:some-plan has no baseUrl/apiKey and must be filtered out.
+            self.assertEqual([p["providerId"] for p in providers], ["fb1"])
+            self.assertEqual(providers[0]["providerName"], "Fallback")
+            self.assertEqual(providers[0]["modelIds"], ["m2"])
+
+    def test_callable_providers_dedupes_and_sorts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "provider_config.json"
+
+            def rule(pid, models, base="http://localhost/v1", key="k"):
+                return {
+                    "providerId": pid,
+                    "providerName": pid.upper(),
+                    "config": {
+                        "access": {"apiKey": key},
+                        "api": {"type": "openai-chat-completions", "baseUrl": base},
+                        "personalModelIds": models,
+                    },
+                }
+
+            path.write_text(
+                json.dumps(
+                    {
+                        "config": {
+                            "providerConfigRules": {
+                                "providerRules": [
+                                    rule("zeta", ["m1"]),
+                                    rule("alpha", ["m2", "m3"]),
+                                    rule("alpha", ["m4"]),          # duplicate id
+                                    rule("nokey", ["m5"], key=""),  # no apiKey
+                                    rule("nourl", ["m6"], base=""),  # no baseUrl
+                                ]
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.object(h, "_provider_config_candidates", return_value=[path]):
+                providers = h.callable_providers()
+            ids = [p["providerId"] for p in providers]
+            self.assertEqual(ids, ["alpha", "zeta"])  # sorted, deduped, filtered
+            self.assertEqual(providers[0]["modelIds"], ["m2", "m3"])
+
+    def test_cmd_models_shape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._fallback_provider_config(tmp)
+            with mock.patch.object(h, "_provider_config_candidates", return_value=[path]):
+                result = h.cmd_models()
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["version"], h.VERSION)
+            self.assertEqual(len(result["providers"]), 1)
+
+    def test_cmd_models_without_provider_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(h, "_provider_config_candidates", return_value=[]):
+                result = h.cmd_models()
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["providers"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

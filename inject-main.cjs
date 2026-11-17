@@ -28,7 +28,7 @@ const HELPER = path.join(HERE, "predict_helper.py");
 const LOG_FILE = path.join(HERE, "zcp.log");
 const LOG_MAX = 2 * 1024 * 1024;
 const IPC_ACTIVE_SID = "zcode:sync-active-task-session";
-const VERSION = "0.1.2";
+const VERSION = "0.1.3";
 
 const DEFAULTS = {
   enabled: true,
@@ -143,6 +143,144 @@ function pushSession(wc, sid) {
   push(wc, "window.__zcpSetSession && window.__zcpSetSession(" + jsString(sid || "") + ")");
 }
 
+// ---------------------------------------------------------------------------
+// Prediction model selection
+//
+// The overlay cannot write files, so: the helper lists callable providers ->
+// main pushes them into the overlay -> the user picks one -> main polls the
+// pick every 2s and writes config.json.  Reading back via polling keeps the
+// renderer free of Node access (it only has the DOM).
+// ---------------------------------------------------------------------------
+
+let modelCache = null;
+let modelCacheAt = 0;
+const MODEL_CACHE_MS = 60000;
+
+function getCallableModels() {
+  const now = Date.now();
+  if (modelCache && now - modelCacheAt < MODEL_CACHE_MS) {
+    return Promise.resolve(modelCache);
+  }
+  return requestHelper({ cmd: "models" }, config().statusTimeoutMs)
+    .then(function (res) {
+      if (res && res.ok && Array.isArray(res.providers)) {
+        modelCache = res.providers;
+        modelCacheAt = now;
+      }
+      return modelCache || [];
+    })
+    .catch(function () {
+      return modelCache || [];
+    });
+}
+
+function pushModelOptions(wc, attempt) {
+  const tries = attempt || 0;
+  getCallableModels()
+    .then(function (providers) {
+      if (wc.isDestroyed()) return;
+      if (!providers.length) {
+        // The helper may still be starting on the first window load.
+        if (tries < 5) {
+          setTimeout(function () {
+            pushModelOptions(wc, tries + 1);
+          }, 3000);
+        }
+        return;
+      }
+      const predict = config().predict || {};
+      push(
+        wc,
+        "window.__zcpSetModelOptions && window.__zcpSetModelOptions(" +
+          jsString({
+            providers: providers,
+            current: {
+              providerId: predict.providerId || "",
+              modelId: predict.modelId || "",
+            },
+          }) +
+          ")"
+      );
+    })
+    .catch(function (e) {
+      debugLog("model options failed:", e.message);
+    });
+}
+
+function writePredictSelection(providerId, modelId) {
+  const predict = config().predict || {};
+  if ((predict.providerId || "") === providerId && (predict.modelId || "") === modelId) {
+    return true;
+  }
+  let data = {};
+  try {
+    data = JSON.parse(fs.readFileSync(CONFIG, "utf8"));
+  } catch (e) {
+    data = {};
+  }
+  if (!data || typeof data !== "object") data = {};
+  if (!data.predict || typeof data.predict !== "object") data.predict = {};
+  data.predict.providerId = providerId;
+  data.predict.modelId = modelId;
+  const tmp = CONFIG + ".tmp";
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", "utf8");
+    fs.renameSync(tmp, CONFIG);
+    log("model selection saved", providerId || "(follow session)", modelId || "-");
+    return true;
+  } catch (e) {
+    log("model selection save failed:", e.message);
+    try {
+      fs.unlinkSync(tmp);
+    } catch (e2) {}
+    return false;
+  }
+}
+
+let choiceWriting = false;
+
+function syncModelChoice() {
+  if (choiceWriting) return;
+  for (const wc of webContents.getAllWebContents()) {
+    if (!isMainWindow(wc) || wc.isDestroyed()) continue;
+    push(
+      wc,
+      "window.__zcpGetModelChoice ? JSON.stringify(window.__zcpGetModelChoice()) : ''"
+    )
+      .then(function (raw) {
+        if (!raw) return;
+        let choice = null;
+        try {
+          choice = JSON.parse(raw);
+        } catch (e) {
+          return;
+        }
+        // The overlay reports ready=false until it has the provider list;
+        // writing before that would wipe a configured model.
+        if (!choice || !choice.ready) return;
+        const providerId = typeof choice.providerId === "string" ? choice.providerId : "";
+        const modelId = typeof choice.modelId === "string" ? choice.modelId : "";
+        const predict = config().predict || {};
+        if ((predict.providerId || "") === providerId && (predict.modelId || "") === modelId) {
+          return;
+        }
+        choiceWriting = true;
+        try {
+          if (!writePredictSelection(providerId, modelId)) return;
+          modelCacheAt = 0; // provider list unchanged; refresh other windows anyway
+          for (const other of webContents.getAllWebContents()) {
+            if (other !== wc && isMainWindow(other) && !other.isDestroyed()) {
+              pushModelOptions(other);
+            }
+          }
+        } finally {
+          choiceWriting = false;
+        }
+      })
+      .catch(function () {});
+  }
+}
+
 function pushSuggestion(wc, payload) {
   push(wc, "window.__zcpShowSuggestion && window.__zcpShowSuggestion(" + jsString(payload) + ")");
 }
@@ -169,6 +307,7 @@ function hookWindow(wc) {
   if (!isMainWindow(wc)) return;
   wc.on("did-finish-load", function () {
     injectOverlay(wc);
+    pushModelOptions(wc);
     const sid = activeSid.get(wc.id) || "";
     if (sid) pushSession(wc, sid);
     scheduleCheck(1200, true);
@@ -178,6 +317,7 @@ function hookWindow(wc) {
   });
   if (!wc.isLoading()) {
     injectOverlay(wc);
+    pushModelOptions(wc);
     const sid = activeSid.get(wc.id) || "";
     if (sid) pushSession(wc, sid);
     scheduleCheck(1500, true);
@@ -209,6 +349,7 @@ function hotReloadIfChanged() {
     if (!isMainWindow(wc) || wc.isDestroyed()) continue;
     push(wc, "window.__zcpOverlay && window.__zcpOverlay.dispose && window.__zcpOverlay.dispose()");
     injectOverlay(wc);
+    pushModelOptions(wc);
   }
 }
 
@@ -388,7 +529,8 @@ function requestHelper(payload, timeoutMs) {
 
 function oneShot(payload, timeoutMs) {
   return new Promise(function (resolve, reject) {
-    const args = [HELPER, payload.cmd, "--session", payload.sessionId];
+    const args = [HELPER, payload.cmd];
+    if (payload.sessionId) args.push("--session", payload.sessionId);
     if (payload.cmd === "predict" && payload.maxChars) {
       args.push("--max-chars", String(payload.maxChars));
     }
@@ -667,7 +809,10 @@ function start() {
   scheduleCheck(2500, true);
 
   heartbeat = setInterval(maybeCheck, Math.max(5000, config().heartbeatMs || 15000));
-  hotTimer = setInterval(hotReloadIfChanged, 2000);
+  hotTimer = setInterval(function () {
+    hotReloadIfChanged();
+    syncModelChoice();
+  }, 2000);
   log("loaded v" + VERSION, "helper=" + HELPER);
 }
 

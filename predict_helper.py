@@ -27,7 +27,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 
 DEFAULTS = {
     "enabled": True,
@@ -382,7 +382,8 @@ def _provider_from_config(provider_id: str, entry: dict) -> dict:
     }
 
 
-def resolve_provider(provider_id: str, model_id: str) -> dict:
+def _load_providers() -> list:
+    """Collect provider entries from every provider config candidate."""
     providers = []
     for path in _provider_config_candidates():
         data = _load_json(path)
@@ -405,6 +406,42 @@ def resolve_provider(provider_id: str, model_id: str) -> dict:
             for key, entry in table.items():
                 if isinstance(entry, dict):
                     providers.append(_provider_from_config(key, entry))
+    return providers
+
+
+def callable_providers() -> list:
+    """Providers the helper can call directly, in provider-id order.
+
+    Built-in plan providers (``account:...``) and anything else without both a
+    baseUrl and an apiKey are excluded: selecting them would only produce a
+    provider that cannot be reached from outside the app.
+    """
+    seen = set()
+    out = []
+    for provider in _load_providers():
+        provider_id = provider.get("providerId") or ""
+        if not provider_id or provider_id in seen:
+            continue
+        if not provider.get("baseUrl") or not provider.get("apiKey"):
+            continue
+        seen.add(provider_id)
+        out.append(
+            {
+                "providerId": provider_id,
+                "providerName": provider.get("providerName") or provider_id,
+                "modelIds": list(provider.get("modelIds") or []),
+            }
+        )
+    out.sort(key=lambda item: item["providerId"])
+    return out
+
+
+def cmd_models() -> dict:
+    return {"ok": True, "version": VERSION, "providers": callable_providers()}
+
+
+def resolve_provider(provider_id: str, model_id: str) -> dict:
+    providers = _load_providers()
 
     if not providers:
         raise RuntimeError("no provider configuration found")
@@ -734,6 +771,8 @@ def serve() -> int:
         try:
             if cmd == "ping":
                 response = {"ok": True, "pong": True, "version": VERSION}
+            elif cmd == "models":
+                response = cmd_models()
             elif not session_id:
                 response = {"ok": False, "error": "missing-sessionId"}
             elif cmd == "status":
@@ -752,7 +791,7 @@ def serve() -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="ZCode composer predictions helper")
-    parser.add_argument("command", choices=["status", "predict", "serve", "selftest"])
+    parser.add_argument("command", choices=["status", "predict", "models", "serve", "selftest"])
     parser.add_argument("--session", default="")
     parser.add_argument("--max-chars", type=int, default=0)
     parser.add_argument("--dry-run", action="store_true")
@@ -765,6 +804,12 @@ def main() -> int:
 
     if args.command == "selftest":
         print(json.dumps({"ok": True, "version": VERSION, "db": str(db_path())}, ensure_ascii=False))
+        return 0
+
+    if args.command == "models":
+        result = cmd_models()
+        indent = 2 if args.pretty else None
+        print(json.dumps(result, ensure_ascii=False, indent=indent))
         return 0
 
     if not args.session:

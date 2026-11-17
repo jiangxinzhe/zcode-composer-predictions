@@ -17,7 +17,7 @@
 (function () {
   "use strict";
 
-  var VERSION = "0.1.2";
+  var VERSION = "0.1.3";
   var ENABLED_KEY = "zcp.enabled";
   var DEBUG_KEY = "zcp.debug";
   var ZH = /^zh/i.test(navigator.language || "");
@@ -39,6 +39,12 @@
     placeholderPrev: "",
     editorMinHeight: "",
     panelOpen: false,
+    // Model picker: providers arrive from the main process, the choice is
+    // read back by it every 2s and persisted to config.json.
+    providers: [],
+    choice: { providerId: "", modelId: "" },
+    choiceReady: false,
+    modelsTimedOut: false,
   };
 
   var els = {};
@@ -264,7 +270,10 @@
       "bottom:40px",
       "z-index:2147483003",
       "display:none",
-      "min-width:190px",
+      "min-width:250px",
+      "max-width:300px",
+      "max-height:min(70vh,460px)",
+      "overflow-y:auto",
       "padding:10px 12px",
       "border-radius:10px",
       "border:1px solid var(--color-border,rgba(127,127,127,.35))",
@@ -302,6 +311,36 @@
     );
     els.panel.appendChild(debugLabel);
 
+    var modelLabel = document.createElement("div");
+    modelLabel.textContent = t("预测模型", "Prediction model");
+    modelLabel.style.cssText = "margin-top:8px;opacity:.75;font-size:11px";
+    els.panel.appendChild(modelLabel);
+
+    els.modelSelect = document.createElement("select");
+    els.modelSelect.style.cssText =
+      "width:100%;margin-top:2px;font:inherit;font-size:11px;padding:2px 4px;border-radius:6px;" +
+      "border:1px solid var(--color-border,rgba(127,127,127,.35));" +
+      "background:var(--color-background,#1f1f1f);color:var(--color-foreground,#eee)";
+    els.panel.appendChild(els.modelSelect);
+
+    els.customRow = document.createElement("div");
+    els.customRow.style.cssText = "display:none;gap:4px;margin-top:4px";
+    els.customProvider = document.createElement("select");
+    els.customProvider.style.cssText =
+      "flex:1 1 45%;min-width:0;font:inherit;font-size:11px;padding:2px;border-radius:6px;" +
+      "border:1px solid var(--color-border,rgba(127,127,127,.35));" +
+      "background:var(--color-background,#1f1f1f);color:var(--color-foreground,#eee)";
+    els.customModel = document.createElement("input");
+    els.customModel.type = "text";
+    els.customModel.placeholder = t("模型 id", "model id");
+    els.customModel.style.cssText =
+      "flex:1 1 55%;min-width:0;font:inherit;font-size:11px;padding:2px 4px;border-radius:6px;" +
+      "border:1px solid var(--color-border,rgba(127,127,127,.35));" +
+      "background:var(--color-background,#1f1f1f);color:var(--color-foreground,#eee)";
+    els.customRow.appendChild(els.customProvider);
+    els.customRow.appendChild(els.customModel);
+    els.panel.appendChild(els.customRow);
+
     els.status = document.createElement("div");
     els.status.style.cssText =
       "margin-top:7px;padding-top:7px;border-top:1px solid var(--color-border,rgba(127,127,127,.25));opacity:.65;font-size:11px;white-space:pre-wrap";
@@ -337,6 +376,38 @@
       },
       { signal: signal }
     );
+
+    els.modelSelect.addEventListener(
+      "change",
+      function () {
+        var value = els.modelSelect.value;
+        if (!value) {
+          els.customRow.style.display = "none";
+          setChoice("", "");
+          return;
+        }
+        if (value === "__custom__") {
+          els.customRow.style.display = "flex";
+          if (!els.customProvider.value && state.providers.length) {
+            els.customProvider.value =
+              state.choice.providerId || state.providers[0].providerId;
+          }
+          applyCustomChoice();
+          return;
+        }
+        els.customRow.style.display = "none";
+        var pair = null;
+        try {
+          pair = JSON.parse(value);
+        } catch (e) {
+          pair = null;
+        }
+        if (pair && pair.length === 2) setChoice(pair[0], pair[1]);
+      },
+      { signal: signal }
+    );
+    els.customProvider.addEventListener("change", applyCustomChoice, { signal: signal });
+    els.customModel.addEventListener("input", applyCustomChoice, { signal: signal });
     els.button.addEventListener(
       "click",
       function (event) {
@@ -365,7 +436,134 @@
       { signal: signal }
     );
 
+    buildModelOptions();
     updateStatus();
+
+    // If the main process never sends the provider list (for example an older
+    // inject-main still running after an overlay hot reload), say so instead
+    // of showing an empty picker:
+    setTimeout(function () {
+      if (state.choiceReady) return;
+      state.modelsTimedOut = true;
+      updateStatus();
+    }, 12000);
+  }
+
+  function modelValue(providerId, modelId) {
+    return JSON.stringify([providerId || "", modelId || ""]);
+  }
+
+  function setChoice(providerId, modelId) {
+    state.choice = { providerId: providerId || "", modelId: modelId || "" };
+    updateStatus();
+  }
+
+  function applyCustomChoice() {
+    setChoice(els.customProvider.value || "", (els.customModel.value || "").trim());
+  }
+
+  function fillCustomProviders() {
+    if (!els.customProvider) return;
+    els.customProvider.textContent = "";
+    state.providers.forEach(function (provider) {
+      var option = document.createElement("option");
+      option.value = provider.providerId;
+      option.textContent = provider.providerName || provider.providerId;
+      els.customProvider.appendChild(option);
+    });
+  }
+
+  function syncModelControls() {
+    if (!els.modelSelect) return;
+    var choice = state.choice || { providerId: "", modelId: "" };
+    if (!choice.providerId && !choice.modelId) {
+      els.modelSelect.value = "";
+      els.customRow.style.display = "none";
+      return;
+    }
+    var wanted = modelValue(choice.providerId, choice.modelId);
+    var matched = false;
+    for (var i = 0; i < els.modelSelect.options.length; i++) {
+      if (els.modelSelect.options[i].value === wanted) {
+        matched = true;
+        break;
+      }
+    }
+    if (matched) {
+      els.modelSelect.value = wanted;
+      els.customRow.style.display = "none";
+      return;
+    }
+    // Not in the list: keep it as a custom provider/model pair.
+    els.modelSelect.value = "__custom__";
+    els.customRow.style.display = "flex";
+    if (choice.providerId) els.customProvider.value = choice.providerId;
+    els.customModel.value = choice.modelId || "";
+  }
+
+  function buildModelOptions() {
+    if (!els.modelSelect) return;
+    els.modelSelect.textContent = "";
+
+    var follow = document.createElement("option");
+    follow.value = "";
+    follow.textContent = t("跟随会话模型（默认）", "Follow session model (default)");
+    els.modelSelect.appendChild(follow);
+
+    state.providers.forEach(function (provider) {
+      var models = provider.modelIds || [];
+      if (!models.length) return;
+      var group = document.createElement("optgroup");
+      group.label = provider.providerName || provider.providerId;
+      models.forEach(function (modelId) {
+        var option = document.createElement("option");
+        option.value = modelValue(provider.providerId, modelId);
+        option.textContent = modelId;
+        group.appendChild(option);
+      });
+      els.modelSelect.appendChild(group);
+    });
+
+    var custom = document.createElement("option");
+    custom.value = "__custom__";
+    custom.textContent = t("自定义…", "Custom…");
+    els.modelSelect.appendChild(custom);
+
+    fillCustomProviders();
+    syncModelControls();
+  }
+
+  function setModelOptions(payload) {
+    if (!payload || typeof payload !== "object") return;
+    var providers = Array.isArray(payload.providers) ? payload.providers : [];
+    state.providers = providers.filter(function (provider) {
+      return provider && provider.providerId;
+    });
+    var current = payload.current || {};
+    state.choice = {
+      providerId: typeof current.providerId === "string" ? current.providerId : "",
+      modelId: typeof current.modelId === "string" ? current.modelId : "",
+    };
+    state.choiceReady = true;
+    buildModelOptions();
+    updateStatus();
+  }
+
+  function getModelChoice() {
+    return {
+      ready: state.choiceReady,
+      providerId: (state.choice && state.choice.providerId) || "",
+      modelId: (state.choice && state.choice.modelId) || "",
+    };
+  }
+
+  function providerLabel(providerId) {
+    for (var i = 0; i < state.providers.length; i++) {
+      if (state.providers[i].providerId === providerId) {
+        return state.providers[i].providerName || providerId;
+      }
+    }
+    return providerId;
   }
 
   function updateStatus() {
@@ -373,8 +571,25 @@
     var parts = [];
     parts.push(isEnabled() ? t("状态：已启用", "Status: enabled") : t("状态：已关闭", "Status: disabled"));
     if (state.sessionId) parts.push("session: " + state.sessionId.slice(0, 18));
+    var choice = state.choice || {};
+    if (!state.choiceReady) {
+      parts.push(
+        state.modelsTimedOut
+          ? t("模型列表未就绪：请完整重启 ZCode", "model list unavailable: fully restart ZCode")
+          : t("模型列表加载中…", "loading model list…")
+      );
+    } else if (choice.providerId) {
+      parts.push(
+        t("模型：", "model: ") +
+          providerLabel(choice.providerId) +
+          " / " +
+          (choice.modelId || t("会话模型", "session model"))
+      );
+    } else {
+      parts.push(t("模型：跟随会话", "model: follow session"));
+    }
     if (isDebug() && state.text) {
-      parts.push("model: " + (state.model || "?"));
+      parts.push("used: " + (state.model || "?"));
       parts.push("latency: " + state.latencyMs + "ms");
     }
     els.status.textContent = parts.join("\n");
@@ -692,8 +907,11 @@
         model: state.model,
         latencyMs: state.latencyMs,
         hasEditor: !!findEditor(),
+        choice: getModelChoice(),
       };
     },
+    setModelOptions: setModelOptions,
+    getModelChoice: getModelChoice,
   };
 
   window.__zcpShowSuggestion = showSuggestion;
@@ -701,6 +919,8 @@
   window.__zcpSetSession = api.setSession;
   window.__zcpShouldPredict = api.shouldPredict;
   window.__zcpStatus = api.status;
+  window.__zcpSetModelOptions = setModelOptions;
+  window.__zcpGetModelChoice = getModelChoice;
   window.__zcpOverlay = api;
 
   ensureUI();
